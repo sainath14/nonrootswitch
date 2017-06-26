@@ -25,7 +25,7 @@ unsigned long level_to_pages (unsigned long level)
 
 int pfn_level_offset(unsigned long pfn, unsigned long level)
 {
-	return (pfn >> (level - 1)*EPT_LEVEL_STRIDE) && EPT_STRIDE_MASK;
+	return (pfn >> (level - 1)*EPT_LEVEL_STRIDE) & EPT_STRIDE_MASK;
 }
 
 u64 pte_table_addr(u64 pteval)
@@ -62,6 +62,7 @@ unsigned long *pte_for_address(unsigned long pfn, unsigned long *target_level)
 	while (1) {
 		offset = pfn_level_offset(pfn, level);
 		pte = &parent[offset];
+//		printk("level %d pte at %lx offset %d\n", level, pte, offset);
 
 		if (level == *target_level)
 			break;
@@ -83,31 +84,31 @@ unsigned long *pte_for_address(unsigned long pfn, unsigned long *target_level)
 	return pte;
 }
 
-int build_pte_guest_phys_addr(unsigned long start_pfn, unsigned long nr_pages) 
+int build_pte_guest_phys_addr(unsigned long start_pfn, long nr_pages) 
 {
 	unsigned long *pte;
 	unsigned long level;
-	unsigned long pages = 1;
+	unsigned long pages;
 
-	printk("building pfn for start_pfn %lx\n", start_pfn);
-        vmx_eptp_pml4 =  (unsigned long *)__get_free_page(GFP_KERNEL);
-	memset(vmx_eptp_pml4, 0, PAGE_SIZE);
-
-        while (nr_pages) {
+	printk("building pfn for start_pfn %lx for pages %d\n", start_pfn, nr_pages);
+        while (nr_pages > 0) {
 		u64 pteval = 0;
 
                 level = highest_level_possible_for_addr(start_pfn, nr_pages);
+//		printk("level decided - %d for start_pfn %lx\n", level, start_pfn);
                 pte = pte_for_address(start_pfn, &level);
                 if (!pte)
                         return -ENOMEM;
+		pages = 1;
                 if (level > 1) {
                         pteval |= EPT_PTE_LARGE_PAGE;
                         pages = level_to_pages(level);
                 }
 		//Todo: Add EPT memory type
 		*pte = pteval | (start_pfn << EPT_PAGE_SHIFT) | PTE_READ | PTE_WRITE | PTE_EXECUTE;
-		printk("pte stored at %lx\n", pte);
+		printk("pte stored at %lx for Pages %lu\n", pte, pages);
 		nr_pages -= pages;
+		printk("nr_pages %lu pages %lu\n", nr_pages, pages);
                 start_pfn += pages;
         }
         return 0;
@@ -116,13 +117,18 @@ int build_pte_guest_phys_addr(unsigned long start_pfn, unsigned long nr_pages)
 static int setup_ept_tables(void)
 {
 
-        /*
+        vmx_eptp_pml4 =  (unsigned long *)__get_free_page(GFP_KERNEL);
+	memset(vmx_eptp_pml4, 0, PAGE_SIZE);
+
+	printk("pml4 table allocated at %lx\n", vmx_eptp_pml4);
+        
+	/*
         * Parse iomem_resource for physical addres ranges
         * Parse only the siblings
         */
         struct resource *root, *entry;
         unsigned long start, end;
-        unsigned long nr_pages,size;
+        long nr_pages,size;
         root = &iomem_resource;
         entry = root->child;
 
@@ -137,7 +143,7 @@ static int setup_ept_tables(void)
 
                 printk("start - %lx, end - %lx\n",start, end);
 
-                size = entry->end - entry->start;
+                size = end - start;
                 nr_pages = size >> 12;
 
                 build_pte_guest_phys_addr((start >> PAGE_SHIFT), nr_pages);

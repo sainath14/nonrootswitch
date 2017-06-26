@@ -5,6 +5,8 @@
 #include <linux/smp.h>
 #include <linux/slab.h>
 #include <linux/compiler.h>
+#include <linux/cpumask.h>
+#include <linux/sched.h>
 
 #include <asm/desc.h>
 #include <asm/msr.h>
@@ -31,6 +33,12 @@ struct vcpu_vmx {
 static DEFINE_PER_CPU(struct vcpu_vmx, vcpu);
 static DEFINE_PER_CPU(struct desc_ptr, host_gdt);
 DEFINE_PER_CPU(unsigned long[NR_VCPU_REGS], reg_scratch);
+DEFINE_PER_CPU(struct task_struct, root_thread);
+DECLARE_BITMAP(all_cpus, NR_CPUS);
+DECLARE_BITMAP(switch_done, NR_CPUS);
+wait_queue_head_t root_thread_queue;
+static pgd_t *host_cr3;
+static DEFINE_MUTEX(ept_lock);
 
 static struct vmcs_config {
 	int size;
@@ -47,12 +55,13 @@ static struct vmcs_config {
 static unsigned long *vmx_io_bitmap_a_switch;
 static unsigned long *vmx_io_bitmap_b_switch;
 static unsigned long *vmx_msr_bitmap_switch;
-static unsigned long *vmx_eptp_pml4 = NULL;
+unsigned long *vmx_eptp_pml4 = NULL;
 static bool ept_tables_set = 0;
 
 static bool __read_mostly switch_on_load = 1;
 module_param_named(switch_vmx, switch_on_load, bool, 0644);
 void vmx_switch_and_exit_handle_vmexit(void);
+void setup_ept_tables(void);
 
 static __always_inline unsigned long __vmcs_readl(unsigned long field)
 {
@@ -208,7 +217,7 @@ static struct vmcs *alloc_vmcs_cpu(int cpu)
 		return NULL;
 	vmcs = page_address(pages);
 	memset(vmcs, 0, vmcs_config.size);
-	vmcs->revision_id = 3; /* vmcs revision id */
+	vmcs->revision_id = vmcs_config.revision_id; /* vmcs revision id */
 	printk (KERN_ERR "physical %lx virtual %lx\n revision_id %x", __pa(vmcs), (unsigned long)vmcs, vmcs->revision_id);
 	return vmcs;
 }
@@ -558,7 +567,7 @@ static noinline void load_host_state_area(void) {
         unsigned long a;
 
         vmcs_writel(HOST_CR0, read_cr0() & ~X86_CR0_TS);
-        vmcs_writel(HOST_CR3, read_cr3()); 
+        vmcs_writel(HOST_CR3, __pa(host_cr3)); 
         vmcs_writel(HOST_CR4, cr4_read_shadow());
 
         asm ("mov %%cs, %%ax\n"
@@ -657,7 +666,7 @@ static void load_execution_control(void)
       value = value & high;
       printk(KERN_ERR "PROC based controls2 into VMCS %x vs. vmcs_config %x\n", value, vmcs_config.cpu_based_2nd_exec_ctrl);
 //      vmcs_write32(SECONDARY_VM_EXEC_CONTROL, vmcs_config.cpu_based_2nd_exec_ctrl); //enable seconday controls
-      vmcs_write32(SECONDARY_VM_EXEC_CONTROL, value); //enable seconday controls
+      vmcs_write32(SECONDARY_VM_EXEC_CONTROL, vmcs_config.cpu_based_2nd_exec_ctrl); //enable seconday controls
 
 
       vmcs_write32(EXCEPTION_BITMAP, 0);
@@ -676,14 +685,14 @@ static void load_execution_control(void)
       memset(vmx_msr_bitmap_switch, 0, PAGE_SIZE);
       vmcs_write64(MSR_BITMAP, __pa(vmx_msr_bitmap_switch));
 
-/*      if (!ept_tables_set) {
+      if (!ept_tables_set) {
          vmx_eptp_pml4 =  (unsigned long *)__get_free_page(GFP_KERNEL);
          memset(vmx_eptp_pml4, 0, PAGE_SIZE);
       }
       eptp = construct_eptp(__pa(vmx_eptp_pml4));
       printk(KERN_ERR "eptp in vmcs area  0x%lx\n", (unsigned long) eptp);
       
-      vmcs_write64(EPT_POINTER, eptp);*/
+      vmcs_write64(EPT_POINTER, eptp);
 
       vmcs_writel(CR0_GUEST_HOST_MASK, 0); //guest owns the bits
 
@@ -726,7 +735,7 @@ void load_vmexit_control(void)
       vmcs_write32(VM_EXIT_MSR_LOAD_COUNT, 0);
 }
 
-static void switch_to_nonroot(void *data)
+static int switch_to_nonroot(void *data)
 {
 	struct vcpu_vmx *vcpu_ptr;
 	int cpu;
@@ -737,6 +746,7 @@ static void switch_to_nonroot(void *data)
 
 	if (test) {
 		printk(KERN_ERR "I am on cpu %d\n", cpu);
+		wait_event_interruptible(root_thread_queue, true);
 		return;
 	}
 	vcpu_ptr = this_cpu_ptr(&vcpu);
@@ -766,12 +776,13 @@ static void switch_to_nonroot(void *data)
 
 	load_vmentry_control();
 
-/*	mutex_unlock(&ept_lock);
+	mutex_lock(&ept_lock);
 	if (!ept_tables_set) {
 		ept_tables_set = 1;
 		setup_ept_tables();
 	}
-*/
+	mutex_unlock(&ept_lock);
+
 	asm("movq %%rsp, %%rax\n"
 		:"=a"(host_rsp));
 	vmcs_writel(HOST_RSP, (vcpu_ptr->vcpu_stack + 16384));
@@ -788,21 +799,37 @@ static void switch_to_nonroot(void *data)
 
 	asm volatile (__ex(ASM_VMX_VMLAUNCH) "\n\t");
 	asm("vmentry_point:");
+	bitmap_set(switch_done, cpu, 1);
 	put_cpu();
-	return;
+
+	wait_event_interruptible(root_thread_queue, true);
+	return 0;
 }
 
 //switch to non-root API
 
 int vmx_switch_to_nonroot (void)
 {
-	volatile bool test = true;
+	volatile bool test = false;
+	int cpu;
+	struct task_struct* thread_ptr;
 
 	printk (KERN_ERR "address of switch_to_nonroot %lx\n", switch_to_nonroot);
+//	printk (KERN_ERR "physical address of init_level4_pgt %lx virtual_address %lx\n", __pa(init_level4_pgt), init_level4_pgt);
 	while (test) {
 
 	}
-	on_each_cpu(switch_to_nonroot, NULL, 1);
+
+	bitmap_zero(switch_done, NR_CPUS);
+	for_each_online_cpu(cpu) {
+		thread_ptr = kthread_create(switch_to_nonroot, NULL, "vmx-switch-%d", cpu);
+		kthread_bind(thread_ptr, cpu);
+		wake_up_process(thread_ptr);
+	}
+
+	while (!bitmap_equal(&all_cpus, &switch_done, num_online_cpus())) { 
+		schedule();	
+	}	
 	return 0;
 }
 EXPORT_SYMBOL(vmx_switch_to_nonroot);
@@ -817,13 +844,35 @@ transfer to root mode.
 */
 
 
+pgd_t *init_process_cr3(void)
+{
+	struct task_struct *task;
+	for_each_process(task) {
+		if(task->pid == (pid_t) 1)
+			return task->mm->pgd;
+	}
+	return NULL;
+}
+
 static int __init nonroot_switch_init(void)
 {
 	setup_vmcs_config(&vmcs_config);
+	init_waitqueue_head(&root_thread_queue);
+	bitmap_fill(&all_cpus, num_online_cpus());
+	host_cr3 = init_process_cr3();
+	if (!host_cr3)
+		goto err;
 	if (switch_on_load)
 		vmx_switch_to_nonroot();
+err:
 	return 0;
 }
 
+static void nonroot_switch_exit(void)
+{
+	printk (KERN_ERR "module vmx-switch unloaded\n");
+}
+
 module_init(nonroot_switch_init);
+module_exit(nonroot_switch_exit);
 MODULE_LICENSE("GPL");

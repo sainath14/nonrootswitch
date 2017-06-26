@@ -3,7 +3,7 @@ PWD=$(shell pwd)
 
 obj-m += vmx-switch.o
 
-vmx-switch-y := cpu_switch.o  vmexit.o
+vmx-switch-y := cpu_switch.o  vmexit.o ptable.o
 
 all:
 	$(MAKE) -C $(KERNELDIR) M=$(PWD)
