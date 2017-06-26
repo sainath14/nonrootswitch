@@ -6,16 +6,17 @@
 #define EPT_LEVEL_STRIDE 9
 #define EPT_STRIDE_MASK ((1 << EPT_LEVEL_STRIDE) - 1)
 #define EPT_PAGE_MASK ((1 << 12) - 1) 
-#define EPT_LARGEPAGE_SUPPORTED 2
+#define EPT_LARGEPAGE_SUPPORTED 1
 #define EPT_MAX_PAGING_LEVEL 4
 #define EPT_PAGE_SHIFT 12
 #define PAGE_SHIFT 12
 #define PTE_READ 1
 #define PTE_WRITE 2
 #define PTE_EXECUTE 4
+#define PTE_MEM_TYPE_WB 0x30
 #define EPT_PTE_LARGE_PAGE (1 << 7)
 
-static unsigned long *vmx_eptp_pml4 = NULL;
+extern unsigned long *vmx_eptp_pml4;
 
 unsigned long level_to_pages (unsigned long level)
 {
@@ -74,7 +75,7 @@ unsigned long *pte_for_address(unsigned long pfn, unsigned long *target_level)
 			page = (void *)get_zeroed_page(GFP_KERNEL);
 			pte_pfn = __pa(page) >> PAGE_SHIFT;
 			//Todo: Add EPT memory type
-			pteval = (pte_pfn << EPT_PAGE_SHIFT ) | PTE_READ | PTE_WRITE | PTE_EXECUTE;
+			pteval = (pte_pfn << EPT_PAGE_SHIFT ) | PTE_MEM_TYPE_WB | PTE_READ | PTE_WRITE | PTE_EXECUTE;
 			*pte = pteval;	
 		}
 
@@ -114,13 +115,13 @@ int build_pte_guest_phys_addr(unsigned long start_pfn, long nr_pages)
         return 0;
 }
 
-static int setup_ept_tables(void)
+void setup_ept_tables(void)
 {
 
-        vmx_eptp_pml4 =  (unsigned long *)__get_free_page(GFP_KERNEL);
+/*        vmx_eptp_pml4 =  (unsigned long *)__get_free_page(GFP_KERNEL);
 	memset(vmx_eptp_pml4, 0, PAGE_SIZE);
 
-	printk("pml4 table allocated at %lx\n", vmx_eptp_pml4);
+	printk("pml4 table allocated at %lx\n", vmx_eptp_pml4);*/
         
 	/*
         * Parse iomem_resource for physical addres ranges
@@ -155,11 +156,3 @@ static int setup_ept_tables(void)
 
 	return 0;
 }
-
-static void exit_module(void)
-{
-	printk("Module unloaded\n");
-}
-
-module_init(setup_ept_tables);
-module_exit(exit_module);
