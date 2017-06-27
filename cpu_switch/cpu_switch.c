@@ -273,7 +273,7 @@ void vmx_switch_and_exit_handler (void)
 	u32 vmexit_reason;	
 	u64 gpa;
 
-	printk ("I am in exit handler\n");
+	printk ("I am in exit handler %d\n", smp_processor_id());
 	reg_area = per_cpu(reg_scratch, smp_processor_id());
 	vcpu_ptr = this_cpu_ptr(&vcpu);
 	reg_area[VCPU_REGS_RIP] = vmcs_readl(GUEST_RIP);
@@ -805,6 +805,7 @@ static int switch_to_nonroot(void *data)
 
 	asm volatile (__ex(ASM_VMX_VMLAUNCH) "\n\t");
 	asm("vmentry_point:");
+	asm("cpuid");
 	bitmap_set(switch_done, cpu, 1);
 	put_cpu();
 
