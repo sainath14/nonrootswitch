@@ -62,6 +62,7 @@ static bool __read_mostly switch_on_load = 1;
 module_param_named(switch_vmx, switch_on_load, bool, 0644);
 void vmx_switch_and_exit_handle_vmexit(void);
 void setup_ept_tables(void);
+void dump_entries (u64 gpa);
 
 static __always_inline unsigned long __vmcs_readl(unsigned long field)
 {
@@ -270,6 +271,7 @@ void vmx_switch_and_exit_handler (void)
 	unsigned long *reg_area;
 	struct vcpu_vmx *vcpu_ptr;	
 	u32 vmexit_reason;	
+	u64 gpa;
 
 	printk ("I am in exit handler\n");
 	reg_area = per_cpu(reg_scratch, smp_processor_id());
@@ -284,7 +286,11 @@ void vmx_switch_and_exit_handler (void)
 		case EXIT_REASON_CPUID:
 			handle_cpuid(vcpu_ptr);
 		break;
-		
+		case EXIT_REASON_EPT_MISCONFIG:
+			gpa = vmcs_read64(GUEST_PHYSICAL_ADDRESS);
+			printk (KERN_ERR "guest physical address 0x%lx\n", gpa);
+			dump_entries(gpa);
+		break;	
 	}
 	
 	if (vcpu_ptr->instruction_skipped == true) {

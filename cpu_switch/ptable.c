@@ -156,3 +156,24 @@ void setup_ept_tables(void)
 
 	return 0;
 }
+
+void dump_entries (u64 gpa)
+{
+	unsigned long pfn = gpa >> PAGE_SHIFT;
+	u64 pteval;
+	unsigned long level;
+	unsigned long *parent;
+	unsigned long offset;
+
+	level = 4;
+	parent = vmx_eptp_pml4;
+	while (level > 0) {
+		offset = pfn_level_offset(pfn, level);
+		pteval = parent[offset];
+		printk (KERN_ERR "level %u pteval %lx\n", level, pteval);
+		if ((pteval & EPT_PTE_LARGE_PAGE) == EPT_PTE_LARGE_PAGE)		
+			break;
+		level--;
+		parent = phys_to_virt(pte_table_addr(pteval));
+	}	
+}
