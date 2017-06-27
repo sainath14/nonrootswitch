@@ -75,7 +75,7 @@ unsigned long *pte_for_address(unsigned long pfn, unsigned long *target_level)
 			page = (void *)get_zeroed_page(GFP_KERNEL);
 			pte_pfn = __pa(page) >> PAGE_SHIFT;
 			//Todo: Add EPT memory type
-			pteval = (pte_pfn << EPT_PAGE_SHIFT ) | PTE_MEM_TYPE_WB | PTE_READ | PTE_WRITE | PTE_EXECUTE;
+			pteval = (pte_pfn << EPT_PAGE_SHIFT ) | PTE_READ | PTE_WRITE | PTE_EXECUTE;
 			*pte = pteval;	
 		}
 
@@ -106,7 +106,7 @@ int build_pte_guest_phys_addr(unsigned long start_pfn, long nr_pages)
                         pages = level_to_pages(level);
                 }
 		//Todo: Add EPT memory type
-		*pte = pteval | (start_pfn << EPT_PAGE_SHIFT) | PTE_READ | PTE_WRITE | PTE_EXECUTE;
+		*pte = pteval | (start_pfn << EPT_PAGE_SHIFT) | PTE_MEM_TYPE_WB | PTE_READ | PTE_WRITE | PTE_EXECUTE;
 		printk("pte stored at %lx for Pages %lu\n", pte, pages);
 		nr_pages -= pages;
 		printk("nr_pages %lu pages %lu\n", nr_pages, pages);
