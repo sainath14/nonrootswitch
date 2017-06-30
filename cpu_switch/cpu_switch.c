@@ -741,6 +741,19 @@ void load_vmexit_control(void)
       vmcs_write32(VM_EXIT_MSR_LOAD_COUNT, 0);
 }
 
+static void enable_feature_control(void)
+{
+	u64 old, test_bits;
+
+	rdmsrl(MSR_IA32_FEATURE_CONTROL, old);
+	test_bits = FEATURE_CONTROL_LOCKED;
+	test_bits |= FEATURE_CONTROL_VMXON_ENABLED_OUTSIDE_SMX;
+
+	if ((old & test_bits) != test_bits) {
+		wrmsrl(MSR_IA32_FEATURE_CONTROL, old | test_bits);
+	}
+}
+
 static int switch_to_nonroot(void *data)
 {
 	struct vcpu_vmx *vcpu_ptr;
@@ -759,6 +772,8 @@ static int switch_to_nonroot(void *data)
 	native_store_gdt(this_cpu_ptr(&host_gdt));
 	vcpu_ptr->vcpu_stack = (u64) kmalloc(16384, GFP_KERNEL);
 	memset((void *)vcpu_ptr->vcpu_stack, 0, 16384);
+
+	enable_feature_control();
 
 	vcpu_ptr->regs = per_cpu(reg_scratch, cpu);
 	if(!(cr4_read_shadow() & X86_CR4_VMXE))
@@ -834,7 +849,7 @@ int vmx_switch_to_nonroot (void)
 		wake_up_process(thread_ptr);
 	}
 
-	while (!bitmap_equal(&all_cpus, &switch_done, num_online_cpus())) { 
+	while (!bitmap_equal((const long unsigned int *)&all_cpus, (const long unsigned int *)&switch_done, num_online_cpus())) { 
 		schedule();	
 	}	
 	return 0;
@@ -865,7 +880,7 @@ static int __init nonroot_switch_init(void)
 {
 	setup_vmcs_config(&vmcs_config);
 	init_waitqueue_head(&root_thread_queue);
-	bitmap_fill(&all_cpus, num_online_cpus());
+	bitmap_fill((long unsigned int *)&all_cpus, num_online_cpus());
 	host_cr3 = init_process_cr3();
 	if (!host_cr3)
 		goto err;
