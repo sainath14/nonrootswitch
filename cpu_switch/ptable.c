@@ -91,7 +91,7 @@ int build_pte_guest_phys_addr(unsigned long start_pfn, long nr_pages)
 	unsigned long level;
 	unsigned long pages;
 
-	printk("building pfn for start_pfn %lx for pages %d\n", start_pfn, nr_pages);
+	printk("building pfn for start_pfn %lx for pages %ld\n", start_pfn, nr_pages);
         while (nr_pages > 0) {
 		u64 pteval = 0;
 
@@ -107,7 +107,7 @@ int build_pte_guest_phys_addr(unsigned long start_pfn, long nr_pages)
                 }
 		//Todo: Add EPT memory type
 		*pte = pteval | (start_pfn << EPT_PAGE_SHIFT) | PTE_MEM_TYPE_WB | PTE_READ | PTE_WRITE | PTE_EXECUTE;
-		printk("pte stored at %lx for Pages %lu\n", pte, pages);
+		printk("pte stored at %lx for Pages %lu\n", (unsigned long) pte, pages);
 		nr_pages -= pages;
 		printk("nr_pages %lu pages %lu\n", nr_pages, pages);
                 start_pfn += pages;
@@ -154,7 +154,7 @@ void setup_ept_tables(void)
                 entry = entry->sibling;
         }
 
-	return 0;
+	return;
 }
 
 void dump_entries (u64 gpa)
@@ -170,7 +170,7 @@ void dump_entries (u64 gpa)
 	while (level > 0) {
 		offset = pfn_level_offset(pfn, level);
 		pteval = parent[offset];
-		printk (KERN_ERR "level %u pteval %lx\n", level, pteval);
+		printk (KERN_ERR "level %lu pteval %llx\n", level, pteval);
 		if ((pteval & EPT_PTE_LARGE_PAGE) == EPT_PTE_LARGE_PAGE)		
 			break;
 		level--;

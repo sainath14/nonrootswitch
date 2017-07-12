@@ -288,7 +288,7 @@ void vmx_switch_and_exit_handler (void)
 		break;
 		case EXIT_REASON_EPT_MISCONFIG:
 			gpa = vmcs_read64(GUEST_PHYSICAL_ADDRESS);
-			printk (KERN_ERR "guest physical address 0x%lx\n", gpa);
+			printk (KERN_ERR "guest physical address 0x%llx\n", gpa);
 			dump_entries(gpa);
 		break;	
 	}
@@ -397,11 +397,9 @@ static noinline void load_guest_state_area(void) {
         struct desc_ptr dt;
         unsigned long a;
 
-        printk(KERN_ERR "value of cr0 0x%lx\n", read_cr0());
         vmcs_writel(GUEST_CR0, read_cr0() & ~X86_CR0_TS);
         vmcs_writel(GUEST_CR3, read_cr3()); 
         vmcs_writel(GUEST_CR4, cr4_read_shadow());
-        printk(KERN_ERR "value written to guest state area 0x%lx\n", vmcs_readl(GUEST_CR0));
 
         base = 0;
         limit = 0xffffffff;
@@ -409,22 +407,17 @@ static noinline void load_guest_state_area(void) {
         asm ("mov %%cs, %%ax\n"
              : "=a"(selector));
         vmcs_write16(GUEST_CS_SELECTOR, selector);
-        printk(KERN_ERR "selector for cs 0x%x\n", selector);
 
         asm ("mov %%cs, %%ax\n"
              : "=a"(selector));
         asm ("lar %%ax, %%rax\n"
              : "=a"(access_rights) : "a"(selector));
-        printk(KERN_ERR "access rights for cs 0x%x\n", access_rights);
         access_rights = access_rights >> 8;  //24.4.1 Guest Register State
         access_rights = access_rights & 0xf0ff;
-
-        printk(KERN_ERR "access rights to be written for cs 0x%x\n", access_rights);
         vmcs_write32(GUEST_CS_AR_BYTES, access_rights);
         vmcs_writel(GUEST_CS_BASE, base);
         vmcs_write32(GUEST_CS_LIMIT, limit);
 
-     
 
         asm ("mov %%ss, %%ax\n"
              : "=a"(selector));
@@ -435,20 +428,14 @@ static noinline void load_guest_state_area(void) {
         }
 
         vmcs_write16(GUEST_SS_SELECTOR, selector);
-        printk(KERN_ERR "selector for ss 0x%x\n", selector);
-
         asm ("mov %%ss, %%ax\n"
              : "=a"(selector));
         asm ("lar %%ax, %%rax\n"
              : "=a"(access_rights) : "a"(selector));
-        printk(KERN_ERR "access rights for ss 0x%x\n", access_rights);
         access_rights = access_rights >> 8;  //24.4.1 Guest Register State
         access_rights = access_rights & 0xf0ff;
-
-        printk(KERN_ERR "access rights to be written for ss 0x%x\n", access_rights);
         if (selector == 0) //hack
              access_rights = 0xc093;
-
         vmcs_write32(GUEST_SS_AR_BYTES, access_rights);
         vmcs_writel(GUEST_SS_BASE, base);
         vmcs_write32(GUEST_SS_LIMIT, limit);
@@ -457,17 +444,12 @@ static noinline void load_guest_state_area(void) {
         asm ("mov %%ds, %%ax\n"
              : "=a"(selector));
         vmcs_write16(GUEST_DS_SELECTOR, selector);
-        printk(KERN_ERR "selector for ds 0x%x\n", selector);
-
         asm ("mov %%ds, %%ax\n"
              : "=a"(selector));
         asm ("lar %%ax, %%rax\n"
              : "=a"(access_rights) : "a"(selector));
-        printk(KERN_ERR "access rights for ds 0x%x\n", access_rights);
         access_rights = access_rights >> 8;  //24.4.1 Guest Register State
         access_rights = access_rights & 0xf0ff;
-
-        printk(KERN_ERR "access rights to be written for ds 0x%x\n", access_rights);
         vmcs_write32(GUEST_DS_AR_BYTES, 0xc093);
         vmcs_writel(GUEST_DS_BASE, base);
         vmcs_write32(GUEST_DS_LIMIT, limit);
@@ -476,14 +458,10 @@ static noinline void load_guest_state_area(void) {
         asm ("mov %%es, %%ax\n"
              : "=a"(selector));
         vmcs_write16(GUEST_ES_SELECTOR, selector);
-        printk(KERN_ERR "selector for es 0x%x\n", selector);
         asm ("lar %%ax, %%rax\n"
              : "=a"(access_rights) : "a"(selector));
-        printk(KERN_ERR "access rights for es 0x%x\n", access_rights);
         access_rights = access_rights >> 8;  //24.4.1 Guest Register State
         access_rights = access_rights & 0xf0ff;
-
-        printk(KERN_ERR "access rights to be written for es 0x%x\n", access_rights);
         vmcs_write32(GUEST_ES_AR_BYTES, 0xc093);
         vmcs_writel(GUEST_ES_BASE, base);
         vmcs_write32(GUEST_ES_LIMIT, limit);
@@ -493,20 +471,14 @@ static noinline void load_guest_state_area(void) {
         asm ("mov %%fs, %%ax\n"
              : "=a"(selector));
         vmcs_write16(GUEST_FS_SELECTOR, selector);
-        printk(KERN_ERR "selector for fs 0x%x\n", selector);
         vmcs_writel(GUEST_FS_BASE, read_msr(MSR_FS_BASE));
-        printk(KERN_ERR "base for fs 0x%lx\n", read_msr(MSR_FS_BASE));
-
         vmcs_write32(GUEST_FS_AR_BYTES, 0xc093);
         vmcs_write32(GUEST_FS_LIMIT, limit);
 
         asm ("mov %%gs, %%ax\n"
              : "=a"(selector));
         vmcs_write16(GUEST_GS_SELECTOR, selector);
-        printk(KERN_ERR "selector for gs 0x%x\n", selector);
         vmcs_writel(GUEST_GS_BASE, read_msr(MSR_GS_BASE));
-        printk(KERN_ERR "base for gs 0x%lx\n", read_msr(MSR_GS_BASE));
-
         vmcs_write32(GUEST_GS_AR_BYTES, 0xc093);
         vmcs_write32(GUEST_GS_LIMIT, limit);
 
@@ -520,15 +492,11 @@ static noinline void load_guest_state_area(void) {
         vmcs_write32(GUEST_LDTR_LIMIT, limit);
         vmcs_write32(GUEST_LDTR_AR_BYTES, 0x10000);
         
- 
-
         native_store_gdt(&dt);
-        printk(KERN_ERR "guest GDT base address 0x%lx\n", dt.address);
         vmcs_writel(GUEST_GDTR_BASE, dt.address);
         vmcs_write32(GUEST_GDTR_LIMIT, dt.size);
 
         native_store_idt(&dt);
-        printk(KERN_ERR "guest IDT base address 0x%lx\n", dt.address);
         vmcs_writel(GUEST_IDTR_BASE, dt.address);
         vmcs_write32(GUEST_IDTR_LIMIT, dt.size);
 
@@ -538,24 +506,19 @@ static noinline void load_guest_state_area(void) {
 
         rdmsr(MSR_IA32_SYSENTER_CS, low, high);
         vmcs_write32(GUEST_SYSENTER_CS, low);
-        printk(KERN_ERR "GUEST_IA32_SYSENTER_CS 0x%x\n", low);
 
         rdmsrl(MSR_IA32_SYSENTER_ESP, a);
         vmcs_writel(GUEST_SYSENTER_ESP, a);
-        printk(KERN_ERR "GUEST_IA32_SYSENTER_ESP 0x%lx\n", a);
 
         rdmsrl(MSR_IA32_SYSENTER_EIP, a);
         vmcs_writel(GUEST_SYSENTER_EIP, a);
-        printk(KERN_ERR "GUEST_IA32_SYSENTER_EIP 0x%lx\n", a);
 
 
         rdmsrl(0xC0000080, a);
         vmcs_write64(GUEST_IA32_EFER, a);
-        printk(KERN_ERR "GUEST_IA32_EFER 0x%lx\n", a);
 
         rdmsrl(0x277, a);
         vmcs_write64(GUEST_IA32_PAT, a);
-        printk(KERN_ERR "GUEST_IA32_PAT 0x%lx\n", a);
 
 //Guest non register state
         vmcs_write32(GUEST_ACTIVITY_STATE, GUEST_ACTIVITY_ACTIVE);
@@ -571,6 +534,7 @@ static noinline void load_host_state_area(void) {
         u16 selector;
         u32 high,low;
         unsigned long a;
+	u16 tr;
 
         vmcs_writel(HOST_CR0, read_cr0() & ~X86_CR0_TS);
         vmcs_writel(HOST_CR3, __pa(host_cr3)); 
@@ -579,71 +543,58 @@ static noinline void load_host_state_area(void) {
         asm ("mov %%cs, %%ax\n"
              : "=a"(selector));
         vmcs_write16(HOST_CS_SELECTOR, selector);
-        printk(KERN_ERR "selector for cs 0x%x\n", selector);
 
         asm ("mov %%ss, %%ax\n"
              : "=a"(selector));
         vmcs_write16(HOST_SS_SELECTOR, selector);
-        printk(KERN_ERR "selector for ss 0x%x\n", selector);
 
         asm ("mov %%ds, %%ax\n"
              : "=a"(selector));
         vmcs_write16(HOST_DS_SELECTOR, selector);
-        printk(KERN_ERR "selector for ds 0x%x\n", selector);
 
         asm ("mov %%es, %%ax\n"
              : "=a"(selector));
         vmcs_write16(HOST_ES_SELECTOR, selector);
-        printk(KERN_ERR "selector for es 0x%x\n", selector);
 
         asm ("mov %%fs, %%ax\n"
              : "=a"(selector));
         vmcs_write16(HOST_FS_SELECTOR, selector);
-        printk(KERN_ERR "selector for fs 0x%x\n", selector);
         vmcs_writel(HOST_FS_BASE, read_msr(MSR_FS_BASE));
         
 
         asm ("mov %%gs, %%ax\n"
              : "=a"(selector));
         vmcs_write16(HOST_GS_SELECTOR, selector);
-        printk(KERN_ERR "selector for gs 0x%x\n", selector);
         vmcs_writel(HOST_GS_BASE, read_msr(MSR_GS_BASE));
 
 
-       vmcs_write16(HOST_TR_SELECTOR, GDT_ENTRY_TSS*8);
-       printk(KERN_ERR "selector for tr hardcoded 0x%x\n", GDT_ENTRY_TSS*8);
-       vmcs_writel(HOST_TR_BASE, kvm_read_tr_base());
+       asm volatile ("str %0": "=r" (tr));	
+       vmcs_write16(HOST_TR_SELECTOR, tr);
+       vmcs_writel(HOST_TR_BASE, segment_base(tr));
 
  
        native_store_gdt(&dt);
-       printk(KERN_ERR "host GDT base address 0x%lx\n", dt.address);
        vmcs_writel(HOST_GDTR_BASE, dt.address);
 
        native_store_idt(&dt);
-       printk(KERN_ERR "host IDT base address 0x%lx\n", dt.address);
        vmcs_writel(HOST_IDTR_BASE, dt.address);
 
 //MSR area
 
         rdmsr(MSR_IA32_SYSENTER_CS, low, high);
         vmcs_write32(HOST_IA32_SYSENTER_CS, low);
-        printk(KERN_ERR "HOST_IA32_SYSENTER_CS 0x%x\n", low);
 
         rdmsrl(MSR_IA32_SYSENTER_ESP, a);
         vmcs_writel(HOST_IA32_SYSENTER_ESP, a);
-        printk(KERN_ERR "GUEST_IA32_SYSENTER_ESP 0x%lx\n", a);
 
         rdmsrl(MSR_IA32_SYSENTER_EIP, a);
         vmcs_writel(HOST_IA32_SYSENTER_EIP, a);
-        printk(KERN_ERR "HOST_IA32_SYSENTER_EIP 0x%lx\n", a);
 
         rdmsrl(0xC0000080, a);
         vmcs_write64(HOST_IA32_EFER, a);
-        printk(KERN_ERR "HOST_IA32_EFER 0x%lx\n", a);
 
         rdmsrl(0x277, a);
         vmcs_write64(HOST_IA32_PAT, a);
-        printk(KERN_ERR "HOST_IA32_PAT 0x%lx\n", a);
 }
 
 static void load_execution_control(void)
@@ -766,7 +717,7 @@ static int switch_to_nonroot(void *data)
 	if (test) {
 		printk(KERN_ERR "I am on cpu %d\n", cpu);
 		wait_event_interruptible(root_thread_queue, true);
-		return;
+		return 0;
 	}
 	vcpu_ptr = this_cpu_ptr(&vcpu);
 	native_store_gdt(this_cpu_ptr(&host_gdt));
@@ -781,7 +732,7 @@ static int switch_to_nonroot(void *data)
 
 	vcpu_ptr->vmxarea = alloc_vmcs_cpu(cpu);
 	phys_addr = __pa(vcpu_ptr->vmxarea);
-	printk (KERN_ERR "physical %lx virtual %lx\n", phys_addr, (unsigned long)vcpu_ptr->vmxarea);
+	printk (KERN_ERR "physical %llx virtual %lx\n", phys_addr, (unsigned long)vcpu_ptr->vmxarea);
 	cpu_vmxon(phys_addr);
 
 	vcpu_ptr->pcpu_vmcs = alloc_vmcs_cpu(cpu);
@@ -832,15 +783,20 @@ static int switch_to_nonroot(void *data)
 
 int vmx_switch_to_nonroot (void)
 {
+	#ifdef DEBUG
 	volatile bool test = false;
+	#endif
+
 	int cpu;
 	struct task_struct* thread_ptr;
 
-	printk (KERN_ERR "address of switch_to_nonroot %lx\n", switch_to_nonroot);
-//	printk (KERN_ERR "physical address of init_level4_pgt %lx virtual_address %lx\n", __pa(init_level4_pgt), init_level4_pgt);
+	#ifdef DEBUG
+	printk (KERN_ERR "address of switch_to_nonroot %llx\n", (u64) switch_to_nonroot);
+
 	while (test) {
 
 	}
+	#endif
 
 	bitmap_zero(switch_done, NR_CPUS);
 	for_each_online_cpu(cpu) {
