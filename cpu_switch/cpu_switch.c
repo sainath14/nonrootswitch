@@ -13,6 +13,7 @@
 #include <asm/tlbflush.h>
 #include <asm/kvm_host.h>
 #include <asm/vmx.h>
+#include <asm/msr-index.h>
 
 #define __ex(x) x
 
@@ -198,6 +199,31 @@ static unsigned long segment_base(u16 selector)
                v |= ((unsigned long)((struct ldttss_desc64 *)d)->base3) << 32;
 #endif
 	return v;
+}
+
+static unsigned int segment_limit(u16 selector)
+{
+	struct desc_ptr *gdt = this_cpu_ptr(&host_gdt);
+	struct desc_struct *d;
+	unsigned long table_base;
+	unsigned int l;
+
+	if (!(selector & ~3))
+		return 0;
+
+	table_base = gdt->address;
+
+	if (selector & 4) {           /* from ldt */
+		u16 ldt_selector = kvm_read_ldt();
+
+		if (!(ldt_selector & ~3))
+			return 0;
+
+		table_base = segment_base(ldt_selector);
+	}
+	d = (struct desc_struct *)(table_base + (selector & ~7));
+	l = get_desc_limit(d);
+	return l;	
 }
 
 static inline unsigned long kvm_read_tr_base(void)
@@ -396,6 +422,7 @@ static noinline void load_guest_state_area(void) {
         u32 access_rights;
         struct desc_ptr dt;
         unsigned long a;
+	u16 tr;
 
         vmcs_writel(GUEST_CR0, read_cr0() & ~X86_CR0_TS);
         vmcs_writel(GUEST_CR3, read_cr3()); 
@@ -408,8 +435,6 @@ static noinline void load_guest_state_area(void) {
              : "=a"(selector));
         vmcs_write16(GUEST_CS_SELECTOR, selector);
 
-        asm ("mov %%cs, %%ax\n"
-             : "=a"(selector));
         asm ("lar %%ax, %%rax\n"
              : "=a"(access_rights) : "a"(selector));
         access_rights = access_rights >> 8;  //24.4.1 Guest Register State
@@ -421,21 +446,12 @@ static noinline void load_guest_state_area(void) {
 
         asm ("mov %%ss, %%ax\n"
              : "=a"(selector));
-
-        if (selector == 0) {//hack
-               printk(KERN_ERR "SS selector turned to be 0\n");
-               selector = 0x18;
-        }
-
         vmcs_write16(GUEST_SS_SELECTOR, selector);
-        asm ("mov %%ss, %%ax\n"
-             : "=a"(selector));
+
         asm ("lar %%ax, %%rax\n"
              : "=a"(access_rights) : "a"(selector));
         access_rights = access_rights >> 8;  //24.4.1 Guest Register State
         access_rights = access_rights & 0xf0ff;
-        if (selector == 0) //hack
-             access_rights = 0xc093;
         vmcs_write32(GUEST_SS_AR_BYTES, access_rights);
         vmcs_writel(GUEST_SS_BASE, base);
         vmcs_write32(GUEST_SS_LIMIT, limit);
@@ -444,48 +460,76 @@ static noinline void load_guest_state_area(void) {
         asm ("mov %%ds, %%ax\n"
              : "=a"(selector));
         vmcs_write16(GUEST_DS_SELECTOR, selector);
-        asm ("mov %%ds, %%ax\n"
-             : "=a"(selector));
-        asm ("lar %%ax, %%rax\n"
-             : "=a"(access_rights) : "a"(selector));
-        access_rights = access_rights >> 8;  //24.4.1 Guest Register State
-        access_rights = access_rights & 0xf0ff;
-        vmcs_write32(GUEST_DS_AR_BYTES, 0xc093);
-        vmcs_writel(GUEST_DS_BASE, base);
-        vmcs_write32(GUEST_DS_LIMIT, limit);
+        if (selector == 0) {
+        	vmcs_write32(GUEST_DS_AR_BYTES, 0x10000);
+	} else {
+        	asm ("lar %%ax, %%rax\n"
+             		: "=a"(access_rights) : "a"(selector));
+        	access_rights = access_rights >> 8;  //24.4.1 Guest Register State
+        	access_rights = access_rights & 0xf0ff;
+        	vmcs_write32(GUEST_DS_AR_BYTES, access_rights);
+        	vmcs_writel(GUEST_DS_BASE, base);
+        	vmcs_write32(GUEST_DS_LIMIT, limit);
+	}
 
 
         asm ("mov %%es, %%ax\n"
              : "=a"(selector));
         vmcs_write16(GUEST_ES_SELECTOR, selector);
-        asm ("lar %%ax, %%rax\n"
-             : "=a"(access_rights) : "a"(selector));
-        access_rights = access_rights >> 8;  //24.4.1 Guest Register State
-        access_rights = access_rights & 0xf0ff;
-        vmcs_write32(GUEST_ES_AR_BYTES, 0xc093);
-        vmcs_writel(GUEST_ES_BASE, base);
-        vmcs_write32(GUEST_ES_LIMIT, limit);
-
+	if (selector == 0) {
+		vmcs_write32(GUEST_ES_AR_BYTES, 0x10000);
+	} else {
+        	asm ("lar %%ax, %%rax\n"
+             		: "=a"(access_rights) : "a"(selector));
+        	access_rights = access_rights >> 8;  //24.4.1 Guest Register State
+        	access_rights = access_rights & 0xf0ff;
+        	vmcs_write32(GUEST_ES_AR_BYTES, access_rights);
+        	vmcs_writel(GUEST_ES_BASE, base);
+        	vmcs_write32(GUEST_ES_LIMIT, limit);
+	}
         // get base for fs and gs from the register
 
         asm ("mov %%fs, %%ax\n"
              : "=a"(selector));
         vmcs_write16(GUEST_FS_SELECTOR, selector);
+	if (selector == 0) {
+		vmcs_write32(GUEST_FS_AR_BYTES, 0x10000);
+	} else {
+        	asm ("lar %%ax, %%rax\n"
+             		: "=a"(access_rights) : "a"(selector));
+        	access_rights = access_rights >> 8;  //24.4.1 Guest Register State
+        	access_rights = access_rights & 0xf0ff;
+        	vmcs_write32(GUEST_FS_AR_BYTES, access_rights);
+	}
         vmcs_writel(GUEST_FS_BASE, read_msr(MSR_FS_BASE));
-        vmcs_write32(GUEST_FS_AR_BYTES, 0xc093);
         vmcs_write32(GUEST_FS_LIMIT, limit);
 
         asm ("mov %%gs, %%ax\n"
              : "=a"(selector));
         vmcs_write16(GUEST_GS_SELECTOR, selector);
+	if (selector == 0) {
+		vmcs_write32(GUEST_GS_AR_BYTES, 0x10000);
+	} else {
+        	asm ("lar %%ax, %%rax\n"
+             		: "=a"(access_rights) : "a"(selector));
+        	access_rights = access_rights >> 8;  //24.4.1 Guest Register State
+        	access_rights = access_rights & 0xf0ff;
+        	vmcs_write32(GUEST_GS_AR_BYTES, access_rights);
+	}
         vmcs_writel(GUEST_GS_BASE, read_msr(MSR_GS_BASE));
-        vmcs_write32(GUEST_GS_AR_BYTES, 0xc093);
         vmcs_write32(GUEST_GS_LIMIT, limit);
 
-        vmcs_write16(GUEST_TR_SELECTOR, GDT_ENTRY_TSS*8);
-        vmcs_writel(GUEST_TR_BASE, kvm_read_tr_base());
-        vmcs_write32(GUEST_TR_LIMIT, 0x67);
-        vmcs_write32(GUEST_TR_AR_BYTES, 0x8b);
+        asm volatile ("str %0": "=r" (tr));	
+        vmcs_write16(GUEST_TR_SELECTOR, tr);
+	if (selector == 0) {
+		vmcs_write32(GUEST_TR_AR_BYTES, 0x10000);
+	} else {
+        	asm ("lar %%ax, %%rax\n"
+             		: "=a"(access_rights) : "a"(tr));
+        	vmcs_writel(GUEST_TR_BASE, segment_base(tr));
+        	vmcs_write32(GUEST_TR_LIMIT, segment_limit(tr));
+        	vmcs_write32(GUEST_TR_AR_BYTES, access_rights);
+	}
 
         vmcs_write16(GUEST_LDTR_SELECTOR, kvm_read_ldt());     
         vmcs_writel(GUEST_LDTR_BASE, base);
@@ -514,10 +558,10 @@ static noinline void load_guest_state_area(void) {
         vmcs_writel(GUEST_SYSENTER_EIP, a);
 
 
-        rdmsrl(0xC0000080, a);
+        rdmsrl(MSR_EFER, a);
         vmcs_write64(GUEST_IA32_EFER, a);
 
-        rdmsrl(0x277, a);
+        rdmsrl(MSR_IA32_CR_PAT, a);
         vmcs_write64(GUEST_IA32_PAT, a);
 
 //Guest non register state
@@ -590,10 +634,10 @@ static noinline void load_host_state_area(void) {
         rdmsrl(MSR_IA32_SYSENTER_EIP, a);
         vmcs_writel(HOST_IA32_SYSENTER_EIP, a);
 
-        rdmsrl(0xC0000080, a);
+        rdmsrl(MSR_EFER, a);
         vmcs_write64(HOST_IA32_EFER, a);
 
-        rdmsrl(0x277, a);
+        rdmsrl(MSR_IA32_CR_PAT, a);
         vmcs_write64(HOST_IA32_PAT, a);
 }
 
