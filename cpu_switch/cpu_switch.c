@@ -521,11 +521,13 @@ static noinline void load_guest_state_area(void) {
 
         asm volatile ("str %0": "=r" (tr));	
         vmcs_write16(GUEST_TR_SELECTOR, tr);
-	if (selector == 0) {
+	if (tr == 0) {
 		vmcs_write32(GUEST_TR_AR_BYTES, 0x10000);
 	} else {
         	asm ("lar %%ax, %%rax\n"
              		: "=a"(access_rights) : "a"(tr));
+        	access_rights = access_rights >> 8;  //24.4.1 Guest Register State
+        	access_rights = access_rights & 0xf0ff;
         	vmcs_writel(GUEST_TR_BASE, segment_base(tr));
         	vmcs_write32(GUEST_TR_LIMIT, segment_limit(tr));
         	vmcs_write32(GUEST_TR_AR_BYTES, access_rights);
